@@ -1,20 +1,24 @@
 package main
+
 import (
-	"github.com/pborges/huejack"
 	"fmt"
-	"os"
+	"log"
+
+	"github.com/pborges/huejack"
 )
 
+var lights = [...]string{
+	"test",
+	"kitchen",
+	"living room",
+	"dining room",
+	"bedroom",
+}
 
 func main() {
-	huejack.SetLogger(os.Stdin)
-	huejack.Handle("test", func(req huejack.Request, res *huejack.Response) {
-		fmt.Println("im handling test from", req.RemoteAddr, req.RequestedOnState)
-		res.OnState = req.RequestedOnState
-		//		res.ErrorState = true //set ErrorState to true to have the echo respond with "unable to reach device"
-		return
+	huejack.Handle(lights[:], func(key, val int) {
+		fmt.Printf("setting light %v (%q) to %v\n", key, lights[key], val)
 	})
 
-	// it is very important to use a full IP here or the UPNP does not work correctly.
-	huejack.ListenAndServe("192.168.2.102:5000")
+	log.Fatal(huejack.ListenAndServe())
 }

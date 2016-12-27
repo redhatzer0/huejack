@@ -1,118 +1,147 @@
 package huejack
+
 import (
-	"github.com/julienschmidt/httprouter"
-	"net/http"
+	"bytes"
 	"encoding/json"
 	"log"
+	"net/http"
 	"strconv"
+
+	"github.com/julienschmidt/httprouter"
 )
 
-type light struct {
-	State            struct {
-						 On        bool `json:"on"`
-						 Bri       int `json:"bri"`
-						 Hue       int `json:"hue"`
-						 Sat       int `json:"sat"`
-						 Effect    string `json:"effect"`
-						 Ct        int `json:"ct"`
-						 Alert     string `json:"alert"`
-						 Colormode string `json:"colormode"`
-						 Reachable bool `json:"reachable"`
-						 XY        []float64 `json:"xy"`
-					 } `json:"state"`
+type State struct {
+	On        bool       `json:"on"`
+	Bri       int        `json:"bri"`
+	Hue       int        `json:"hue"`
+	Sat       int        `json:"sat"`
+	Effect    string     `json:"effect"`
+	CT        int        `json:"ct"`
+	Alert     string     `json:"alert"`
+	ColorMode string     `json:"colormode"`
+	Reachable bool       `json:"reachable"`
+	XY        [2]float64 `json:"xy"`
+}
+
+// See http://www.burgestrand.se/hue-api/api/lights/.
+type Light struct {
+	State            State  `json:"state"`
 	Type             string `json:"type"`
 	Name             string `json:"name"`
-	ModelId          string `json:"modelid"`
+	ModelID          string `json:"modelid"`
 	ManufacturerName string `json:"manufacturername"`
-	UniqueId         string `json:"uniqueid"`
-	SwVersion        string `json:"swversion"`
+	UniqueID         string `json:"uniqueid"`
+	SWVersion        string `json:"swversion"`
 	PointSymbol      struct {
-						 One   string `json:"1"`
-						 Two   string `json:"2"`
-						 Three string `json:"3"`
-						 Four  string `json:"4"`
-						 Five  string `json:"5"`
-						 Six   string `json:"6"`
-						 Seven string `json:"7"`
-						 Eight string `json:"8"`
-					 } `json:"pointsymbol"`
+		One   string `json:"1"`
+		Two   string `json:"2"`
+		Three string `json:"3"`
+		Four  string `json:"4"`
+		Five  string `json:"5"`
+		Six   string `json:"6"`
+		Seven string `json:"7"`
+		Eight string `json:"8"`
+	} `json:"pointsymbol"`
 }
 
-type lights struct {
-	Lights map[string]light `json:"lights"`
-}
+var devices map[string]*Light
+var handler Handler
 
-func initLight(name string) light {
-	l := light{
-		Type:"Extended color light",
-		ModelId:"LCT001",
-		SwVersion:"65003148",
-		ManufacturerName:"Philips",
-		Name:name,
-		UniqueId:name,
+func Handle(devices1 []string, h Handler) {
+	log.Println("[HANDLE]", devices1)
+
+	devices = make(map[string]*Light)
+	for i, name := range devices1 {
+		id := strconv.Itoa(i)
+		devices[id] = &Light{
+			Type:             "Extended color light",
+			ModelID:          "LCT001",
+			SWVersion:        "65003148",
+			ManufacturerName: "Philips",
+			Name:             name,
+			UniqueID:         id,
+			State: State{
+				Reachable: true,
+			},
+		}
 	}
-	l.State.Reachable = true
-	l.State.XY = []float64{0.4255, 0.3998}  // this seems to be voodoo, if it is nil the echo says it could not turn on/off the device, useful...
-	return l
+	handler = h
 }
 
-func enumerateLights() lights {
-	lightList := lights{}
-	lightList.Lights = make(map[string]light)
-	for name, hstate := range handlerMap {
-		l := initLight(name)
-		l.State.On = hstate.OnState
-		lightList.Lights[l.UniqueId] = l
+func sendJSON(w http.ResponseWriter, val interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(val); err != nil {
+		log.Fatal("[WEB] error encoding json: ", err)
 	}
-	return lightList
+	log.Print("sending JSON response: ", buf.String())
+
+	w.Write(buf.Bytes())
 }
 
 func getLightsList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	r.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(enumerateLights())
-	if err != nil {
-		log.Fatalln("[WEB] Error encoding json", err)
-	}
+	// TODO(mdempsky): Do we need to send the full lights struct here?
+	sendJSON(w, struct {
+		Lights map[string]*Light `json:"lights"`
+	}{devices})
 }
 
 func setLightState(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 	defer r.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-	req := make(map[string]bool)
+	var req struct {
+		On  *bool `json:"on"`
+		Bri *int  `json:"bri"`
+	}
 	json.NewDecoder(r.Body).Decode(&req)
+	log.Printf("[DEVICE] req = %#v", req)
 
-	log.Println("[DEVICE]", p.ByName("userId"), "requested state:", req["on"])
-	response := Response{}
-	if hstate, ok := handlerMap[p.ByName("lightId")]; ok {
-		hstate.Handler(Request{
-			UserId:p.ByName("userId"),
-			RequestedOnState:req["on"],
-			RemoteAddr:r.RemoteAddr,
-		}, &response)
-		log.Println("[DEVICE] handler replied with state:", response.OnState)
-		hstate.OnState = response.OnState
-		handlerMap[p.ByName("lightId")] = hstate
+	lightID := p.ByName("lightId")
+	light, ok := devices[lightID]
+	if !ok {
+		log.Printf("device %v missing", lightID)
+		return
 	}
-	if !response.ErrorState {
-		w.Write([]byte("[{\"success\":{\"/lights/" + p.ByName("lightId") + "/state/on\":" + strconv.FormatBool(response.OnState) + "}}]"))
+
+	// TODO(mdempsky): Validate Bri is in range.
+	if req.On != nil {
+		light.State.On = *req.On
 	}
+	if req.Bri != nil {
+		light.State.Bri = *req.Bri
+	}
+
+	val := 0
+	if light.State.On {
+		val = light.State.Bri + 1
+	}
+
+	key, _ := strconv.Atoi(lightID)
+	handler(key, val)
+
+	// TODO(mdempsky): Does this really need to be so terrible?
+	m := make(map[string]interface{})
+	if req.On != nil {
+		m["/lights/"+lightID+"/state/on"] = *req.On
+	}
+	if req.Bri != nil {
+		m["/lights/"+lightID+"/state/bri"] = *req.Bri
+	}
+	var res [1]struct {
+		Success map[string]interface{} `json:"success"`
+	}
+	res[0].Success = m
+
+	sendJSON(w, &res)
 }
 
 func getLightInfo(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-	r.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
-
-	l := initLight(p.ByName("lightId"))
-
-	if hstate, ok := handlerMap[p.ByName("lightId")]; ok {
-		if hstate.OnState {
-			l.State.On = true
-		}
+	lightID := p.ByName("lightId")
+	l, ok := devices[lightID]
+	if !ok {
+		log.Printf("device %v missing", lightID)
+		return
 	}
 
-	err := json.NewEncoder(w).Encode(l)
-	if err != nil {
-		log.Fatalln("[WEB] Error encoding json", err)
-	}
+	sendJSON(w, l)
 }
