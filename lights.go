@@ -47,11 +47,11 @@ type Light struct {
 var devices map[string]*Light
 var handler Handler
 
-func Handle(devices1 []string, h Handler) {
-	log.Println("[HANDLE]", devices1)
+func Handle(names []string, h Handler) {
+	log.Println("[HANDLE]", names)
 
 	devices = make(map[string]*Light)
-	for i, name := range devices1 {
+	for i, name := range names {
 		id := strconv.Itoa(i)
 		devices[id] = &Light{
 			Type:             "Extended color light",
@@ -62,6 +62,7 @@ func Handle(devices1 []string, h Handler) {
 			UniqueID:         id,
 			State: State{
 				Reachable: true,
+				Bri:       255,
 			},
 		}
 	}

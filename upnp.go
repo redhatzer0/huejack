@@ -9,6 +9,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
+	"strings"
 
 	"github.com/julienschmidt/httprouter"
 	"golang.org/x/net/ipv4"
@@ -76,16 +78,25 @@ func upnpResponder(port int) {
 		log.Fatal(err)
 	}
 	gaddr := &net.UDPAddr{IP: net.IPv4(239, 255, 255, 250)}
+	var success []string
 	for i := range ifaces {
 		if ifaces[i].Flags&net.FlagMulticast == 0 {
 			continue
 		}
+
 		if err := p.JoinGroup(&ifaces[i], gaddr); err != nil {
-			log.Fatal(err)
+			log.Printf("[UPNP] skipping %s: failed to join UPnP group: %v", ifaces[i].Name, err)
+			continue
 		}
+
+		success = append(success, ifaces[i].Name)
+	}
+	if len(success) == 0 {
+		log.Fatal("no successful multicast interfaces")
 	}
 
-	log.Println("[UPNP] listening...")
+	sort.Strings(success)
+	log.Printf("[UPNP] listening on %s...", strings.Join(success, " "))
 
 	var b [1500]byte
 	for {
