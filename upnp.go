@@ -142,12 +142,12 @@ func upnpAnswer(port int, raddr *net.UDPAddr) {
 		// According to draft-frystyk-http-extensions-03, we
 		// MUST include a no-cache="Ext" directive in the Cache-Control
 		// header field, but then Echo ignores our response.
-		"Cache-Control": []string{`max-age=300`},
-		"Ext":           []string{``},
-		"Location":      []string{url},
-		"Opt":           []string{`"http://schemas.upnp.org/upnp/1/0/"; ns=01`},
-		"St":            []string{`urn:schemas-upnp-org:device:basic:1`},
-		"Usn":           []string{`uuid:f6543a06-800d-48ba-8d8f-bc2949eddc33`},
+		"Cache-Control": {`max-age=300`},
+		"Ext":           {``},
+		"Location":      {url},
+		"Opt":           {`"http://schemas.upnp.org/upnp/1/0/"; ns=01`},
+		"St":            {`urn:schemas-upnp-org:device:basic:1`},
+		"Usn":           {`uuid:f6543a06-800d-48ba-8d8f-bc2949eddc33`},
 	}.Write(&buf)
 	buf.WriteString("\r\n")
 
