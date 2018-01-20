@@ -9,7 +9,9 @@ import (
 )
 
 func ListenAndServe() error {
-	l, err := net.ListenTCP("tcp4", nil)
+	//Alexa is unhappy if we don't have a fixed port TODO: make it configurable?
+	laddr := net.TCPAddr{Port: 43312}
+	l, err := net.ListenTCP("tcp4", &laddr)
 	if err != nil {
 		return err
 	}
